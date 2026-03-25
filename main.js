@@ -8,6 +8,7 @@ const stateEl = document.getElementById('state');
 const WORLD_WIDTH = canvas.width;
 const WORLD_HEIGHT = canvas.height;
 
+const LANE_COUNT = 3;
 // 斜め上から見下ろした雰囲気を出すため、奥ほど上・手前ほど下に配置
 const LANE_Y = [425, 505, 585];
 const GROUND_BASE_Y = 630;
@@ -70,7 +71,7 @@ function initLayerPoints(layer) {
 layers.forEach(initLayerPoints);
 
 function spawnObstacle() {
-  const lane = Math.floor(seededRange(0, 3));
+  const lane = Math.floor(seededRange(0, LANE_COUNT));
   const type = Math.random() > 0.55 ? 'tall' : 'small';
   const h = type === 'tall' ? 90 : 58;
   const w = type === 'tall' ? 44 : 68;
@@ -101,7 +102,7 @@ function resetGame() {
 }
 
 function moveLane(direction) {
-  const next = Math.max(0, Math.min(2, player.lane + direction));
+  const next = Math.max(0, Math.min(LANE_COUNT - 1, player.lane + direction));
   player.lane = next;
   player.targetY = LANE_Y[next];
 }
@@ -204,11 +205,21 @@ function drawGround() {
   ctx.lineTo(WORLD_WIDTH, topY);
   ctx.stroke();
 
-  // 3レーン
-  ctx.strokeStyle = 'rgba(166, 247, 226, 0.45)';
+  // 3レーンが視認しやすいよう、レーン面と境界線を描画
+  const laneTop = LANE_Y[0];
+  const laneBottom = LANE_Y[LANE_COUNT - 1] + player.h;
+  const laneHeight = (laneBottom - laneTop) / LANE_COUNT;
+
+  for (let i = 0; i < LANE_COUNT; i++) {
+    const y = laneTop + i * laneHeight;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(43, 139, 128, 0.18)' : 'rgba(43, 139, 128, 0.1)';
+    ctx.fillRect(0, y, WORLD_WIDTH, laneHeight);
+  }
+
+  ctx.strokeStyle = 'rgba(166, 247, 226, 0.58)';
   ctx.lineWidth = 3;
-  for (const laneY of LANE_Y) {
-    const y = laneY + player.h;
+  for (let i = 0; i <= LANE_COUNT; i++) {
+    const y = laneTop + i * laneHeight;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(WORLD_WIDTH, y);
@@ -252,6 +263,7 @@ function drawPlayer() {
 
 function drawObstacles() {
   for (const obs of obstacles) {
+    // 障害物は表示のみ（当たり判定は行わない）
     const gradient = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y + obs.h);
     gradient.addColorStop(0, '#ff92a6');
     gradient.addColorStop(1, '#9a2341');
