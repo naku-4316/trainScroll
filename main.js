@@ -7,10 +7,12 @@ const stateEl = document.getElementById('state');
 
 const WORLD_WIDTH = canvas.width;
 const WORLD_HEIGHT = canvas.height;
-const GROUND_Y = 575;
+
+// 斜め上から見下ろした雰囲気を出すため、奥ほど上・手前ほど下に配置
+const LANE_Y = [425, 505, 585];
+const GROUND_BASE_Y = 630;
 
 const input = {
-  jump: false,
   dash: false,
 };
 
@@ -21,14 +23,12 @@ const state = {
 };
 
 const player = {
-  x: 210,
-  y: GROUND_Y,
+  x: 230,
+  y: LANE_Y[1],
+  targetY: LANE_Y[1],
+  lane: 1,
   w: 52,
   h: 78,
-  vy: 0,
-  gravity: 1850,
-  jumpPower: -820,
-  onGround: true,
   color: '#58d9ff',
 };
 
@@ -41,9 +41,10 @@ const speedControl = {
 };
 
 const layers = [
-  { color: '#0f1f4d', speedFactor: 0.12, y: 460, h: 220, points: [] },
-  { color: '#12316f', speedFactor: 0.28, y: 500, h: 180, points: [] },
-  { color: '#18448f', speedFactor: 0.45, y: 535, h: 145, points: [] },
+  // far -> near
+  { color: '#0d1f4f', speedFactor: 0.12, y: 330, h: 220, points: [] },
+  { color: '#12306f', speedFactor: 0.26, y: 405, h: 260, points: [] },
+  { color: '#1a4c97', speedFactor: 0.44, y: 495, h: 280, points: [] },
 ];
 
 const obstacles = [];
@@ -59,22 +60,27 @@ function initLayerPoints(layer) {
   while (x < WORLD_WIDTH + 220) {
     layer.points.push({
       x,
-      height: seededRange(18, 95),
-      width: seededRange(80, 180),
+      height: seededRange(55, 180),
+      width: seededRange(70, 170),
     });
-    x += seededRange(85, 170);
+    x += seededRange(75, 150);
   }
 }
 
 layers.forEach(initLayerPoints);
 
 function spawnObstacle() {
-  const type = Math.random() > 0.65 ? 'tall' : 'small';
+  const lane = Math.floor(seededRange(0, 3));
+  const type = Math.random() > 0.55 ? 'tall' : 'small';
+  const h = type === 'tall' ? 90 : 58;
+  const w = type === 'tall' ? 44 : 68;
+
   obstacles.push({
-    x: WORLD_WIDTH + seededRange(40, 240),
-    y: type === 'tall' ? GROUND_Y - 90 : GROUND_Y - 55,
-    w: type === 'tall' ? 42 : 65,
-    h: type === 'tall' ? 90 : 55,
+    x: WORLD_WIDTH + seededRange(60, 260),
+    y: LANE_Y[lane] + player.h - h,
+    w,
+    h,
+    lane,
     type,
   });
 }
@@ -84,9 +90,9 @@ function resetGame() {
   state.distance = 0;
   state.gameOver = false;
 
-  player.y = GROUND_Y;
-  player.vy = 0;
-  player.onGround = true;
+  player.lane = 1;
+  player.y = LANE_Y[player.lane];
+  player.targetY = LANE_Y[player.lane];
 
   speedControl.current = speedControl.base;
   obstacles.length = 0;
@@ -94,22 +100,15 @@ function resetGame() {
   layers.forEach(initLayerPoints);
 }
 
+function moveLane(direction) {
+  const next = Math.max(0, Math.min(2, player.lane + direction));
+  player.lane = next;
+  player.targetY = LANE_Y[next];
+}
+
 function updatePlayer(dt) {
-  if (state.gameOver) return;
-
-  if (input.jump && player.onGround) {
-    player.vy = player.jumpPower;
-    player.onGround = false;
-  }
-
-  player.vy += player.gravity * dt;
-  player.y += player.vy * dt;
-
-  if (player.y >= GROUND_Y) {
-    player.y = GROUND_Y;
-    player.vy = 0;
-    player.onGround = true;
-  }
+  const diff = player.targetY - player.y;
+  player.y += diff * Math.min(1, 12 * dt);
 }
 
 function updateSpeed(dt) {
@@ -130,11 +129,11 @@ function updateBackground(dt) {
     }
 
     const last = layer.points[layer.points.length - 1];
-    if (last && last.x < WORLD_WIDTH) {
+    if (last && last.x < WORLD_WIDTH + 80) {
       layer.points.push({
-        x: last.x + seededRange(90, 160),
-        height: seededRange(18, 100),
-        width: seededRange(80, 180),
+        x: last.x + seededRange(80, 150),
+        height: seededRange(55, 180),
+        width: seededRange(70, 170),
       });
     }
 
@@ -150,8 +149,8 @@ function updateObstacles(dt) {
   obstacleTimer -= dt;
   if (obstacleTimer <= 0) {
     spawnObstacle();
-    obstacleTimer = seededRange(0.75, 1.5) - (speedControl.current / 3000);
-    obstacleTimer = Math.max(0.42, obstacleTimer);
+    obstacleTimer = seededRange(0.8, 1.45) - (speedControl.current / 3100);
+    obstacleTimer = Math.max(0.46, obstacleTimer);
   }
 
   for (const obs of obstacles) {
@@ -162,54 +161,66 @@ function updateObstacles(dt) {
     obstacles.shift();
   }
 
-  for (const obs of obstacles) {
-    if (
-      player.x < obs.x + obs.w &&
-      player.x + player.w > obs.x &&
-      player.y < obs.y + obs.h &&
-      player.y + player.h > obs.y
-    ) {
-      state.gameOver = true;
-      break;
-    }
-  }
+  // 要望により障害物の当たり判定は一旦オフ
 }
 
 function drawSky() {
   const gradient = ctx.createLinearGradient(0, 0, 0, WORLD_HEIGHT);
   gradient.addColorStop(0, '#1f2f74');
-  gradient.addColorStop(0.45, '#15275c');
+  gradient.addColorStop(0.45, '#14275a');
   gradient.addColorStop(1, '#081024');
 
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
-  for (let i = 0; i < 26; i++) {
-    const x = (i * 89 + state.elapsed * 15) % (WORLD_WIDTH + 60) - 30;
-    const y = 80 + Math.sin((i * 0.4) + state.elapsed * 0.5) * 20;
-    ctx.fillStyle = `rgba(255,255,255,${0.12 + (i % 3) * 0.07})`;
-    ctx.beginPath();
-    ctx.arc(x, y, 2 + (i % 4), 0, Math.PI * 2);
-    ctx.fill();
-  }
 }
 
 function drawLayer(layer) {
   ctx.fillStyle = layer.color;
   for (const p of layer.points) {
     ctx.fillRect(p.x, layer.y - p.height, p.width, p.height + layer.h);
+    ctx.fillStyle = 'rgba(255,255,255,.1)';
+    ctx.fillRect(p.x + 8, layer.y - p.height + 12, Math.max(4, p.width * 0.16), 6);
+    ctx.fillStyle = layer.color;
   }
 }
 
 function drawGround() {
-  ctx.fillStyle = '#1f4d4f';
-  ctx.fillRect(0, GROUND_Y + player.h - 12, WORLD_WIDTH, WORLD_HEIGHT - GROUND_Y);
+  const topY = 500;
 
-  const stripeSpeed = speedControl.current * 0.6;
-  const offset = -((state.elapsed * stripeSpeed) % 95);
-  for (let x = offset; x < WORLD_WIDTH + 120; x += 95) {
-    ctx.fillStyle = '#2a7b74';
-    ctx.fillRect(x, GROUND_Y + 74, 55, 8);
+  // 斜め上から見下ろす遠近感を持つ台形地面
+  ctx.fillStyle = '#173c3f';
+  ctx.beginPath();
+  ctx.moveTo(0, topY);
+  ctx.lineTo(WORLD_WIDTH, topY);
+  ctx.lineTo(WORLD_WIDTH, WORLD_HEIGHT);
+  ctx.lineTo(0, WORLD_HEIGHT);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#2d8e85';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(0, topY);
+  ctx.lineTo(WORLD_WIDTH, topY);
+  ctx.stroke();
+
+  // 3レーン
+  ctx.strokeStyle = 'rgba(166, 247, 226, 0.45)';
+  ctx.lineWidth = 3;
+  for (const laneY of LANE_Y) {
+    const y = laneY + player.h;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(WORLD_WIDTH, y);
+    ctx.stroke();
+  }
+
+  // 走行線
+  const stripeSpeed = speedControl.current * 0.7;
+  const offset = -((state.elapsed * stripeSpeed) % 100);
+  for (let x = offset; x < WORLD_WIDTH + 120; x += 100) {
+    ctx.fillStyle = '#2b8b80';
+    ctx.fillRect(x, GROUND_BASE_Y + 40, 64, 8);
   }
 }
 
@@ -220,9 +231,6 @@ function drawPlayer() {
   ctx.save();
   ctx.translate(px, py);
 
-  const squish = player.onGround ? 1 : 0.95;
-  ctx.scale(1.03, squish);
-
   ctx.fillStyle = player.color;
   ctx.fillRect(0, 0, player.w, player.h);
 
@@ -232,7 +240,6 @@ function drawPlayer() {
   ctx.fillStyle = '#041016';
   ctx.fillRect(38, 22, 5, 5);
 
-  // boost trail
   if (input.dash && !state.gameOver) {
     ctx.fillStyle = 'rgba(88,217,255,.35)';
     for (let i = 0; i < 5; i++) {
@@ -273,7 +280,7 @@ function drawGameOver() {
 function updateHud() {
   distanceEl.textContent = Math.floor(state.distance).toLocaleString('ja-JP');
   speedEl.textContent = Math.round(speedControl.current * 0.08).toLocaleString('ja-JP');
-  stateEl.textContent = state.gameOver ? 'DOWN' : input.dash ? 'BOOST' : 'RUN';
+  stateEl.textContent = state.gameOver ? 'DOWN' : input.dash ? 'BOOST' : `LANE ${player.lane + 1}`;
 }
 
 let lastTime = performance.now();
@@ -303,9 +310,13 @@ function loop(timestamp) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' || e.code === 'ArrowUp') {
+  if (e.code === 'ArrowUp') {
     e.preventDefault();
-    input.jump = true;
+    moveLane(-1);
+  }
+  if (e.code === 'ArrowDown') {
+    e.preventDefault();
+    moveLane(1);
   }
   if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
     input.dash = true;
@@ -316,9 +327,6 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'Space' || e.code === 'ArrowUp') {
-    input.jump = false;
-  }
   if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
     input.dash = false;
   }
